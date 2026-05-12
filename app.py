@@ -45,11 +45,6 @@ st.set_page_config(
 )
 
 st.title("Billboard Ad Agent")
-st.markdown(
-    "An agentic system that generates and composes billboard advertisements. "
-    "The **Editor Agent** uses a ReAct loop to compose multiple image assets, "
-    "check brand compliance, and iterate until the billboard passes."
-)
 
 # ---------------------------------------------------------------------------
 # Sidebar — configuration
