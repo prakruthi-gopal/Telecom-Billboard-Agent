@@ -1,6 +1,6 @@
 # Billboard Ad Agent
 
-An agentic system that generates and composes billboard advertisements for Bell Canada.
+An agentic system that generates and composes billboard advertisements for any telecom brand.
 
 ## Core idea
 
@@ -32,7 +32,7 @@ Every iteration starts from a fresh canvas to prevent ghosting and double-layeri
 
 ## What the Editor Agent actually does (2D grid operations)
 
-The key insight: image generation models are **tools**, not agents. The editor agent **orchestrates** them.
+This is the part I stumbled on in the interview. The key insight: image generation models are **tools**, not agents. The editor agent **orchestrates** them.
 
 Each placement is a grid operation:
 - `place_asset_on_canvas(x=512, y=40, width=380, height=220)` — maps an asset to a rectangular region on the canvas
@@ -46,7 +46,7 @@ These validations are **hardcoded in Python**, not LLM prompt suggestions. The L
 
 | Component | Technology |
 |-----------|-----------|
-| LLM reasoning | Gemini 2.5 Flash |
+| LLM reasoning | Gemini Flash |
 | Image generation | Google Imagen (same API key) |
 | Orchestration | Pure Python (shared state dict) |
 | Image composition | Pillow |
@@ -114,11 +114,12 @@ The main limitation is spatial reasoning. LLMs reason about layout from text des
 
 ```
 billboard_agent/
-├── app.py                  # Streamlit UI + pipeline orchestration
+├── app.py                  # Streamlit UI — standalone mode (agents in-process)
 ├── state.py                # Shared state schema
 ├── config.py               # Brand guidelines + constants
 ├── tools.py                # Pillow tools + hard validations
 ├── requirements.txt
+├── packages.txt            # System dependencies (fonts)
 ├── .env                    # API key (gitignored)
 └── agents/
     ├── guardrail.py        # Safety + relevance check
@@ -126,3 +127,13 @@ billboard_agent/
     ├── generator.py        # Spec → Imagen assets
     └── editor.py           # ReAct composition loop
 ```
+
+## Running
+
+**Standalone (Streamlit Cloud or local):**
+```bash
+streamlit run app.py
+```
+Runs everything in one process. No backend needed.
+
+`app.py` runs the pipeline directly (agents in-process).

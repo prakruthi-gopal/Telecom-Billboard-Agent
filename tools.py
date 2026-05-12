@@ -6,7 +6,7 @@ Tools:
 - place_asset_on_canvas: crop/resize/place an image on the canvas
 - add_text_overlay: headline with auto-wrap and auto-sizing
 - add_subtext: secondary text with auto-wrap
-- place_logo: Bell logo (hardcoded top-right)
+- place_logo: brand logo (hardcoded top-right)
 - apply_brand_overlay: semi-transparent color overlay
 
 Validation:
@@ -17,7 +17,7 @@ Validation:
 import os
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
-from config import BILLBOARD_WIDTH, BILLBOARD_HEIGHT, BELL_WHITE
+from config import BILLBOARD_WIDTH, BILLBOARD_HEIGHT, BRAND_WHITE, BRAND_PRIMARY
 
 
 def _next_path(output_dir: str, edit_history: list[str], label: str) -> str:
@@ -159,15 +159,12 @@ def place_asset_on_canvas(
         asset = asset.resize((width, height), Image.LANCZOS)
 
         # Feather the edges so lifestyle blends into the background
-        # Creates a gradient alpha mask — fully opaque in center, fading to transparent at edges
-        feather = 25  # pixels of fade
+        feather = 20
         mask = Image.new("L", (width, height), 255)
         draw_mask = ImageDraw.Draw(mask)
-
         for i in range(feather):
             alpha = int(255 * i / feather)
             draw_mask.rectangle([i, i, width - 1 - i, height - 1 - i], outline=alpha)
-
         asset.putalpha(mask)
 
     canvas.paste(asset, (x, y), asset)
@@ -190,7 +187,7 @@ def place_asset_on_canvas(
 
 def add_text_overlay(
     image_path: str, output_dir: str, edit_history: list[str],
-    headline: str, x: int, y: int, font_size: int = 48, text_color: str = BELL_WHITE,
+    headline: str, x: int, y: int, font_size: int = 48, text_color: str = BRAND_WHITE,
 ) -> dict:
     """Add headline text with auto-wrap and auto font-size reduction."""
     img = Image.open(image_path).convert("RGBA")
@@ -202,7 +199,7 @@ def add_text_overlay(
 
     max_height = img_h - y - 20
     min_font_size = 28
-    lines = [headline]  # Default: single unwrapped line
+    lines = [headline]
     line_height = int(font_size * 1.25)
     font = ImageFont.load_default()
 
@@ -243,7 +240,7 @@ def add_text_overlay(
 
 def add_subtext(
     image_path: str, output_dir: str, edit_history: list[str],
-    text: str, x: int, y: int, font_size: int = 24, text_color: str = BELL_WHITE,
+    text: str, x: int, y: int, font_size: int = 24, text_color: str = BRAND_WHITE,
 ) -> dict:
     """Add secondary text with auto-wrap."""
     img = Image.open(image_path).convert("RGBA")
@@ -279,15 +276,30 @@ def add_subtext(
 
 
 def place_logo(image_path: str, output_dir: str, edit_history: list[str], **kwargs) -> dict:
-    """Place Bell logo. Always top-right, fixed size."""
+    """Place brand logo. Always top-right, fixed size."""
     img = Image.open(image_path).convert("RGBA")
 
-    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "bell_logo.png")
-    logo = Image.open(logo_path).convert("RGBA")
+    logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "brand_logo.png")
 
-    logo_h = int(BILLBOARD_HEIGHT * 0.28)
-    logo_w = int(logo.width * (logo_h / logo.height))
-    logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+    if os.path.exists(logo_path):
+        logo = Image.open(logo_path).convert("RGBA")
+        logo_h = int(BILLBOARD_HEIGHT * 0.28)
+        logo_w = int(logo.width * (logo_h / logo.height))
+        logo = logo.resize((logo_w, logo_h), Image.LANCZOS)
+    else:
+        # Generate a simple placeholder logo if no asset file exists
+        logo_h = int(BILLBOARD_HEIGHT * 0.28)
+        logo_w = int(logo_h * 1.8)
+        logo = Image.new("RGBA", (logo_w, logo_h), (0, 0, 0, 0))
+        draw_logo = ImageDraw.Draw(logo)
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", logo_h // 3)
+        except (IOError, OSError):
+            font = ImageFont.load_default()
+        from config import BRAND_NAME
+        bbox = draw_logo.textbbox((0, 0), BRAND_NAME, font=font)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        draw_logo.text(((logo_w - tw) // 2, (logo_h - th) // 2), BRAND_NAME, fill=(0, 61, 165, 255), font=font)
 
     margin_x = int(BILLBOARD_WIDTH * 0.02)
     margin_y = int(BILLBOARD_HEIGHT * 0.06)
@@ -301,7 +313,7 @@ def place_logo(image_path: str, output_dir: str, edit_history: list[str], **kwar
 
     return {
         "new_image_path": save_path,
-        "edit_description": f"Placed Bell logo at top-right ({x},{y}), size {logo_w}x{logo_h}",
+        "edit_description": f"Placed brand logo at top-right ({x},{y}), size {logo_w}x{logo_h}",
     }
 
 
@@ -309,7 +321,7 @@ def apply_brand_overlay(
     image_path: str, output_dir: str, edit_history: list[str],
     region: str = "bottom-strip", opacity: float = 0.3,
 ) -> dict:
-    """Apply a semi-transparent Bell Blue overlay."""
+    """Apply a semi-transparent brand color overlay."""
     img = Image.open(image_path).convert("RGBA")
     overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -332,7 +344,7 @@ def apply_brand_overlay(
 
     return {
         "new_image_path": save_path,
-        "edit_description": f"Applied Bell Blue overlay on {region} (opacity {opacity})",
+        "edit_description": f"Applied brand overlay on {region} (opacity {opacity})",
     }
 
 

@@ -7,16 +7,20 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from state import BillboardState
-from config import BILLBOARD_WIDTH, BILLBOARD_HEIGHT
+from config import BILLBOARD_WIDTH, BILLBOARD_HEIGHT, BRAND_NAME
 
 
-PLANNER_SYSTEM_PROMPT = f"""You are a creative director for Bell Canada billboard ads.
+PLANNER_SYSTEM_PROMPT = f"""You are a creative director for {BRAND_NAME} billboard ads.
 
 Canvas: {BILLBOARD_WIDTH}x{BILLBOARD_HEIGHT} pixels.
 
-You will plan 2 image assets:
+FIRST — analyze the brief:
+- What is the PRIMARY thing being sold? (this becomes the headline)
+- What is the THEME/MOOD? (this influences the background)
+
+THEN — plan exactly 2 image assets:
 1. "background" — a thematic/mood-setting image. Covers the FULL canvas as the bottom layer.
-2. "lifestyle" — people enjoying/using the product. This is the HERO image, placed ON TOP of the background.
+2. "lifestyle" — people enjoying/using the product in a relevant scenario. This is the HERO image.
 
 The lifestyle image is the HERO but placed as a FRAMED PHOTO floating on top of the background.
 It should NOT touch any edge of the billboard. The background must be visible on ALL sides around it.
@@ -24,11 +28,11 @@ The headline goes next to or below the lifestyle image, over the visible backgro
 
 Return ONLY valid JSON:
 {{
-    "headline": "What the viewer GETS — max 6 words (e.g., '4 Lines. Free Upgrade.')",
+    "headline": "The VALUE PROPOSITION — max 6 words. Must state a concrete benefit. DO NOT copy from examples — create original copy based on the brief. Examples from OTHER industries for tone reference only: 'Fly Anywhere. From $99.' or 'Zero Fees. Maximum Speed.' or 'Upgrade Free. Limited Time.'",
     "headline_x": {int(BILLBOARD_WIDTH * 0.58)},
     "headline_y": {int(BILLBOARD_HEIGHT * 0.3)},
     "headline_font_size": 44,
-    "subtext": "Optional short detail, max 5 words (e.g., 'Perfect for Back-to-School.' or 'Visit bell.ca today.') or empty string",
+    "subtext": "A punchy call to action, max 5 words. Create original copy — don't reuse examples. Tone reference: 'Plans starting at $X/mo.' or 'Visit us online today.' or empty string",
     "subtext_x": {int(BILLBOARD_WIDTH * 0.58)},
     "subtext_y": {int(BILLBOARD_HEIGHT * 0.7)},
     "subtext_font_size": 20,
@@ -55,7 +59,7 @@ You may adjust:
 - crop_focus based on where people are in the image
 - headline position — place it on the OPPOSITE side from the lifestyle image
 If the brief already includes a specific headline or tagline, USE IT as-is instead of making up a new one.
-Otherwise, the headline must say what Bell is OFFERING, not just the theme.
+Otherwise, the headline must say what {BRAND_NAME} is OFFERING, not just the theme.
 The lifestyle image must NOT touch any edge of the billboard.
 """
 

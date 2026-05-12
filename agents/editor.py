@@ -1,10 +1,6 @@
 """
 Editor Agent: The hero of the system.
-
 ReAct loop: REASON → ACT → OBSERVE
-- LLM decides positioning, sizing, and crop focus
-- Code enforces safety (overlap prevention, boundary clamping, crop validation)
-- Compliance checker evaluates the result
 """
 
 import json
@@ -13,7 +9,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from state import BillboardState
-from config import BRAND_GUIDELINES, BILLBOARD_WIDTH, BILLBOARD_HEIGHT
+from config import BRAND_GUIDELINES, BILLBOARD_WIDTH, BILLBOARD_HEIGHT, BRAND_NAME
 from tools import (
     create_canvas,
     place_asset_on_canvas,
@@ -25,7 +21,7 @@ from tools import (
 )
 
 
-EDITOR_REASON_PROMPT = f"""You are an expert billboard compositor for Bell Canada.
+EDITOR_REASON_PROMPT = f"""You are an expert billboard compositor for {BRAND_NAME}.
 
 You have image assets to compose onto a {BILLBOARD_WIDTH}x{BILLBOARD_HEIGHT} pixel canvas.
 
@@ -34,7 +30,7 @@ Available tools:
 2. place_asset — Place an image on the canvas. Parameters: asset_role (str), x (int), y (int), width (int), height (int), crop_focus ("center"|"left"|"right"|"top"|"bottom")
 3. text_overlay — Add headline. Parameters: headline (str), x (int), y (int), font_size (36-56)
 4. subtext — Add secondary text. Parameters: text (str), x (int), y (int), font_size (18-28)
-5. logo — Place Bell logo. No parameters needed (position is fixed).
+5. logo — Place brand logo. No parameters needed (position is fixed).
 
 Return ONLY valid JSON:
 {{
@@ -52,12 +48,12 @@ COMPOSITION RULES:
 - Lifestyle: A FRAMED PHOTO floating on top of the background. Must NOT touch any edge of the billboard.
   Acceptable ranges: x=50-250, y=15-30, width=450-600, height=240-270
   The background must be visible on ALL four sides around the lifestyle image.
-- Headline: Place next to or below the lifestyle image, over the visible background area.
+- Headline: Place where the background is visible (usually the opposite side from the lifestyle image)
 - Use the spec's planned layout coordinates as your starting point. Adjust only if compliance violations require it.
 """
 
 
-COMPLIANCE_PROMPT = f"""You are a brand compliance reviewer for Bell Canada billboards.
+COMPLIANCE_PROMPT = f"""You are a brand compliance reviewer for {BRAND_NAME} billboards.
 
 {BRAND_GUIDELINES}
 
@@ -145,12 +141,8 @@ def _execute_action(action: dict, state: BillboardState, current_path: str, edit
         asset_role = params.get("asset_role", "background")
         asset_path = _get_asset_path(state, asset_role)
         if not asset_path:
-            return {
-                "new_image_path": current_path,
-                "edit_description": f"Asset '{asset_role}' not found — skipped",
-            }
+            return {"new_image_path": current_path, "edit_description": f"Asset '{asset_role}' not found — skipped"}
 
-        # Background always covers full canvas, stretched to fit (no awkward cropping)
         if asset_role == "background":
             x, y = 0, 0
             w, h = BILLBOARD_WIDTH, BILLBOARD_HEIGHT
@@ -163,57 +155,44 @@ def _execute_action(action: dict, state: BillboardState, current_path: str, edit
             mode = "crop"
 
         return place_asset_on_canvas(
-            canvas_path=current_path,
-            asset_path=asset_path,
-            output_dir=output_dir,
-            edit_history=edit_history,
+            canvas_path=current_path, asset_path=asset_path,
+            output_dir=output_dir, edit_history=edit_history,
             x=x, y=y, width=w, height=h,
-            crop_focus=params.get("crop_focus", "center"),
-            resize_mode=mode,
+            crop_focus=params.get("crop_focus", "center"), resize_mode=mode,
         )
 
     elif tool == "brand_overlay":
         return apply_brand_overlay(
             current_path, output_dir, edit_history,
-            region=params.get("region", "bottom-strip"),
-            opacity=params.get("opacity", 0.3),
+            region=params.get("region", "bottom-strip"), opacity=params.get("opacity", 0.3),
         )
 
     elif tool == "text_overlay":
         return add_text_overlay(
             current_path, output_dir, edit_history,
-            headline=params.get("headline", "Switch to Bell"),
+            headline=params.get("headline", "Your Brand Here"),
             x=params.get("x", int(BILLBOARD_WIDTH * 0.1)),
             y=params.get("y", int(BILLBOARD_HEIGHT * 0.4)),
             font_size=params.get("font_size", 48),
         )
 
     elif tool == "subtext":
-        # Always position subtext below the headline
         subtext_y = params.get("y", int(BILLBOARD_HEIGHT * 0.65))
         if text_bottom_y is not None:
             subtext_y = max(subtext_y, text_bottom_y + 8)
-        # Don't render if it would start completely off the canvas
         if subtext_y > BILLBOARD_HEIGHT - 15:
             return {"new_image_path": current_path, "edit_description": "Subtext skipped — no room below headline"}
         return add_subtext(
             current_path, output_dir, edit_history,
-            text=params.get("text", ""),
-            x=params.get("x", int(BILLBOARD_WIDTH * 0.1)),
-            y=subtext_y,
-            font_size=params.get("font_size", 24),
+            text=params.get("text", ""), x=params.get("x", int(BILLBOARD_WIDTH * 0.1)),
+            y=subtext_y, font_size=params.get("font_size", 24),
         )
 
     elif tool == "logo":
-        return place_logo(
-            current_path, output_dir, edit_history,
-        )
+        return place_logo(current_path, output_dir, edit_history)
 
     else:
-        return {
-            "new_image_path": current_path,
-            "edit_description": f"Unknown tool '{tool}' — skipped",
-        }
+        return {"new_image_path": current_path, "edit_description": f"Unknown tool '{tool}' — skipped"}
 
 
 def _check_compliance(image_path: str) -> dict:
@@ -243,41 +222,28 @@ def _check_compliance(image_path: str) -> dict:
 
 
 def editor_agent(state: BillboardState) -> dict:
-    """
-    Editor node for LangGraph. One iteration of the ReAct loop.
-    Every iteration starts from a fresh canvas.
-    """
+    """Editor node. One iteration of the ReAct loop. Every iteration starts from a fresh canvas."""
     iteration = state["iteration_count"] + 1
 
-    # ----- REASON -----
     plan = _reason_about_edits(state)
     actions = plan.get("actions", [])
 
-    # Ensure fresh canvas every iteration
     has_canvas = any(a.get("tool") == "create_canvas" for a in actions)
     if not has_canvas:
-        actions.insert(0, {
-            "tool": "create_canvas",
-            "parameters": {"bg_color": [0, 61, 165]},
-            "why": "Fresh canvas to prevent ghosting",
-        })
+        actions.insert(0, {"tool": "create_canvas", "parameters": {"bg_color": [0, 61, 165]}, "why": "Fresh canvas"})
 
-    # ----- ACT -----
     current_path = None
     edit_history = list(state["edit_history"])
     placed_regions: list[dict] = []
-    text_bottom_y = None  # Tracks where the headline text ends for subtext positioning
+    text_bottom_y = None
 
     for action in actions:
         tool = action.get("tool", "")
         params = action.get("parameters", {})
 
-        # Overlap resolution for non-background assets
         if tool == "place_asset" and params.get("asset_role") != "background":
-            proposed = {
-                "x": params.get("x", 0), "y": params.get("y", 0),
-                "width": params.get("width", 200), "height": params.get("height", 200),
-            }
+            proposed = {"x": params.get("x", 0), "y": params.get("y", 0),
+                        "width": params.get("width", 200), "height": params.get("height", 200)}
             adjusted = resolve_overlap(proposed, placed_regions)
             if adjusted != proposed:
                 action = dict(action)
@@ -286,27 +252,20 @@ def editor_agent(state: BillboardState) -> dict:
                                              "width": adjusted["width"], "height": adjusted["height"]})
             placed_regions.append(adjusted)
 
-        # Track text regions
         if tool == "text_overlay":
             headline = params.get("headline", "")
             fs = params.get("font_size", 48)
-            placed_regions.append({
-                "x": params.get("x", 0), "y": params.get("y", 0),
-                "width": len(headline) * int(fs * 0.6), "height": int(fs * 1.3),
-            })
+            placed_regions.append({"x": params.get("x", 0), "y": params.get("y", 0),
+                                   "width": len(headline) * int(fs * 0.6), "height": int(fs * 1.3)})
 
         result = _execute_action(action, state, current_path, edit_history, text_bottom_y)
         current_path = result["new_image_path"]
 
-        # Capture text_bottom_y RIGHT AFTER text_overlay executes
         if tool == "text_overlay" and "text_bottom_y" in result:
             text_bottom_y = result["text_bottom_y"]
 
-        edit_history.append(
-            f"[iter {iteration}] {result['edit_description']} | reason: {action.get('why', 'N/A')}"
-        )
+        edit_history.append(f"[iter {iteration}] {result['edit_description']} | reason: {action.get('why', 'N/A')}")
 
-    # ----- OBSERVE -----
     compliance = _check_compliance(current_path)
 
     return {

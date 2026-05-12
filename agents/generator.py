@@ -1,3 +1,7 @@
+"""
+Generator Agent: Produces image assets for the billboard using Imagen.
+"""
+
 import os
 from google import genai
 from google.genai import types
@@ -10,9 +14,7 @@ FALLBACK_MODEL = "imagen-4.0-generate-001"
 
 
 def _generate_with_fallback(client, prompt: str):
-    """
-    Try fast model first. If quota/resource error occurs, fallback to full model.
-    """
+    """Try fast model first. If quota/resource error, fallback to full model."""
     try:
         return client.models.generate_images(
             model=FAST_MODEL,
@@ -25,10 +27,8 @@ def _generate_with_fallback(client, prompt: str):
         )
     except Exception as e:
         error_str = str(e).lower()
-
-        # Detect quota / rate limit / resource exhaustion
-        if any(keyword in error_str for keyword in ["429", "quota", "resource_exhausted", "rate limit"]):
-
+        if any(kw in error_str for kw in ["429", "quota", "resource_exhausted", "rate limit"]):
+            print(f"[Generator] Fast model quota hit — falling back to full model")
             return client.models.generate_images(
                 model=FALLBACK_MODEL,
                 prompt=prompt,
@@ -38,24 +38,15 @@ def _generate_with_fallback(client, prompt: str):
                     aspect_ratio="16:9",
                 ),
             )
-
-        # If it's some other error, don't silently swallow it
         raise
 
 
 def generator_agent(state: BillboardState) -> dict:
-    """
-    Generator node for LangGraph.
-    Reads: state["spec"]["image_assets"]
-    Writes: state["image_assets"]
-
-    HARD RULE: Always generates max 2 assets (1 background + 1 foreground).
-    """
+    """Generator node in the pipeline. Max 2 assets."""
     spec = state["spec"]
     output_dir = state["output_dir"]
     asset_specs = spec.get("image_assets", [])
 
-    # ENFORCE max 2 assets — but allow 1 if planner chose single asset approach
     if len(asset_specs) == 0:
         asset_specs = [{
             "role": "background",
@@ -69,17 +60,12 @@ def generator_agent(state: BillboardState) -> dict:
         asset_specs = background[:1] + foreground[:1]
 
     client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-
     generated_assets: list[ImageAsset] = []
 
     for i, asset_spec in enumerate(asset_specs):
-        prompt = asset_spec["prompt"]
-
-        result = _generate_with_fallback(client, prompt)
-
+        result = _generate_with_fallback(client, asset_spec["prompt"])
         save_path = os.path.join(output_dir, f"asset_{i}_{asset_spec['role']}.png")
         result.generated_images[0].image.save(save_path)
-
         generated_assets.append({
             "role": asset_spec["role"],
             "path": save_path,
